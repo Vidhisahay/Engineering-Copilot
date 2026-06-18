@@ -31,7 +31,7 @@
 ```
     <div class="col-md-8 col-xl-6 chat">
 
-        <div class="card">
+        <div class="card position-relative">
 
             <div class="card-header msg_head">
 
@@ -60,6 +60,24 @@
 
             <div id="messageFormeight" class="card-body msg_card_body">
 
+            </div>
+
+            <div id="loginOverlay" class="login-overlay">
+                <div class="login-card card p-4">
+                    <h5 class="mb-3">Sign in</h5>
+                    <form id="loginForm">
+                        <div class="form-group">
+                            <label for="loginUsername">Username</label>
+                            <input type="text" id="loginUsername" class="form-control" required autocomplete="username">
+                        </div>
+                        <div class="form-group">
+                            <label for="loginPassword">Password</label>
+                            <input type="password" id="loginPassword" class="form-control" required autocomplete="current-password">
+                        </div>
+                        <p id="loginError" class="text-danger small d-none mb-2"></p>
+                        <button type="submit" class="btn btn-primary btn-block">Login</button>
+                    </form>
+                </div>
             </div>
 
             <div class="card-footer">
@@ -101,7 +119,59 @@
 
 <script>
 
+const TOKEN_KEY = "engineering_copilot_jwt";
+
+function getToken() {
+    return sessionStorage.getItem(TOKEN_KEY);
+}
+
+function setToken(token) {
+    sessionStorage.setItem(TOKEN_KEY, token);
+}
+
+function showLogin(show) {
+    $("#loginOverlay").toggleClass("d-none", !show);
+    $("#messageArea :input").prop("disabled", show);
+    $("#send").prop("disabled", show);
+}
+
+function requireAuth() {
+    if (!getToken()) {
+        showLogin(true);
+        return false;
+    }
+    showLogin(false);
+    return true;
+}
+
 $(document).ready(function() {
+
+    requireAuth();
+
+    $("#loginForm").on("submit", function(event) {
+        event.preventDefault();
+        $("#loginError").addClass("d-none");
+
+        $.ajax({
+            url: "/login",
+            type: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({
+                username: $("#loginUsername").val(),
+                password: $("#loginPassword").val(),
+            }),
+        }).done(function(data) {
+            setToken(data.access_token);
+            $("#loginUsername").val("");
+            $("#loginPassword").val("");
+            requireAuth();
+        }).fail(function(xhr) {
+            const msg = xhr.responseJSON && xhr.responseJSON.msg
+                ? xhr.responseJSON.msg
+                : "Login failed";
+            $("#loginError").text(msg).removeClass("d-none");
+        });
+    });
 
     $("#messageArea").on("submit", function(event) {
 
@@ -132,6 +202,11 @@ $(document).ready(function() {
 
         $("#messageFormeight").append(userHtml);
 
+        if (!requireAuth()) {
+            event.preventDefault();
+            return;
+        }
+
         $.ajax({
 
             data: {
@@ -141,6 +216,10 @@ $(document).ready(function() {
             type: "POST",
 
             url: "/get",
+
+            headers: {
+                Authorization: "Bearer " + getToken(),
+            },
 
         }).done(function(data) {
 
@@ -159,6 +238,11 @@ $(document).ready(function() {
 
             $("#messageFormeight").append($.parseHTML(botHtml));
 
+        }).fail(function(xhr) {
+            if (xhr.status === 401) {
+                sessionStorage.removeItem(TOKEN_KEY);
+                requireAuth();
+            }
         });
 
         event.preventDefault();
