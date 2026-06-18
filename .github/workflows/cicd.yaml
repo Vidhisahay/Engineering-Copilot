@@ -44,30 +44,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
 
-      - name: Deploy to EC2 via AWS SSM
-        uses: peterkimzz/aws-ssm-command@v1.1.0
-        with:
-          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-          # Finds your EC2 instance automatically using a tag. 
-          # Ensure your EC2 instance has a Tag with Key: Name, Value: engineering-copilot
-          search-by: 'tags'
-          key: 'Name'
-          value: 'engineering-machine'
-          command: |
-            # 1. Log into ECR on your EC2 instance
-            aws ecr get-login-password --region ${{ secrets.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCESS_KEY_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com
-            
-            # 2. Clean up old container
-            docker stop engineering-copilot || true
-            docker rm engineering-copilot || true
-            
-            # 3. Pull and Run the new container with your secrets
-            docker pull ${{ secrets.AWS_ACCESS_KEY_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.ECR_REPO }}:latest
-            docker run -d --name engineering-copilot \
-              -e JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}" \
-              -e AUTH_USERNAME="${{ secrets.AUTH_USERNAME }}" \
-              -e AUTH_PASSWORD="${{ secrets.AUTH_PASSWORD }}" \
-              -e PINECONE_API_KEY="${{ secrets.PINECONE_API_KEY }}" \
-              -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-              -p 8080:8080 \
-              ${{ secrets.AWS_ACCESS_KEY_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.ECR_REPO }}:latest
+      - name: Deploy to EC2 via Native AWS SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids "i-0d22e4f65385435b0" \
+            --document-name "AWS-RunShellScript" \
+            --parameters '{"commands":[
+              "aws ecr get-login-password --region '"${{ secrets.AWS_DEFAULT_REGION }}"' | docker login --username AWS --password-stdin '"${{ secrets.AWS_ACCESS_KEY_ID }}"'.dkr.ecr.'"${{ secrets.AWS_DEFAULT_REGION }}"'.amazonaws.com",
+              "docker stop engineering-copilot || true",
+              "docker rm engineering-copilot || true",
+              "docker pull '"${{ secrets.AWS_ACCESS_KEY_ID }}"'.dkr.ecr.'"${{ secrets.AWS_DEFAULT_REGION }}"'.amazonaws.com/'"${{ secrets.ECR_REPO }}"':latest",
+              "docker run -d --name engineering-copilot -e JWT_SECRET_KEY=\"'"${{ secrets.JWT_SECRET_KEY }}"'\" -e AUTH_USERNAME=\"'"${{ secrets.AUTH_USERNAME }}"'\" -e AUTH_PASSWORD=\"'"${{ secrets.AUTH_PASSWORD }}"'\" -e PINECONE_API_KEY=\"'"${{ secrets.PINECONE_API_KEY }}"'\" -e OPENAI_API_KEY=\"'"${{ secrets.OPENAI_API_KEY }}"'\" -p 8080:8080 '"${{ secrets.AWS_ACCESS_KEY_ID }}"'.dkr.ecr.'"${{ secrets.AWS_DEFAULT_REGION }}"'.amazonaws.com/'"${{ secrets.ECR_REPO }}"':latest"
+            ]}'
