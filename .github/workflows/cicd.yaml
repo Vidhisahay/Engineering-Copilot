@@ -1,19 +1,20 @@
-name: Deploy Application Docker Image to EC2 instance
+name: Deploy Application Docker Image to EC2 Instance
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   Continuous-Integration:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -21,28 +22,27 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
+      - name: Build and Push Docker Image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPO }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .  
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
   Continuous-Deployment:
     needs: Continuous-Integration
     runs-on: self-hosted
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -50,20 +50,44 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Run Docker Image to serve users
+      - name: Stop and Remove Existing Container
         run: |
-         docker stop engineering-copilot || true
-         docker rm engineering-copilot || true
-         docker run -d --name engineering-copilot \
-           -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
-           -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-           -e AWS_DEFAULT_REGION="${{ secrets.AWS_DEFAULT_REGION }}" \
-           -e PINECONE_API_KEY="${{ secrets.PINECONE_API_KEY }}" \
-           -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-           -e JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}" \
-           -e SECRET_KEY="${{ secrets.SECRET_KEY }}" \
-           -e AUTH_USERNAME="${{ secrets.AUTH_USERNAME }}" \
-           -e AUTH_PASSWORD="${{ secrets.AUTH_PASSWORD }}" \
-           -p 8080:8080 "${{ steps.login-ecr.outputs.registry }}"/"${{ secrets.ECR_REPO }}":latest
+          docker stop engineering-copilot || true
+          docker rm engineering-copilot || true
+
+      - name: Remove Old Images
+        run: |
+          docker image prune -af || true
+
+      - name: Pull Latest Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPO }}
+        run: |
+          docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Run Latest Container
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPO }}
+        run: |
+          docker run -d \
+            --name engineering-copilot \
+            -p 8080:8080 \
+            -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
+            -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+            -e AWS_DEFAULT_REGION="${{ secrets.AWS_DEFAULT_REGION }}" \
+            -e PINECONE_API_KEY="${{ secrets.PINECONE_API_KEY }}" \
+            -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+            -e JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}" \
+            -e SECRET_KEY="${{ secrets.SECRET_KEY }}" \
+            -e AUTH_USERNAME="${{ secrets.AUTH_USERNAME }}" \
+            -e AUTH_PASSWORD="${{ secrets.AUTH_PASSWORD }}" \
+            $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Verify Deployment
+        run: |
+          sleep 10
+          docker ps
