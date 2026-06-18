@@ -16,19 +16,22 @@ def _build_rag_chain():
     from langchain_core.prompts import ChatPromptTemplate
     from src.prompts import system_prompt
 
-
-def _build_rag_chain():
     embeddings = download_hugging_face_embeddings()
 
     index_name = "engineering-copilot"
+
     docsearch = PineconeVectorStore.from_existing_index(
         index_name=index_name,
         embedding=embeddings,
     )
 
-    retriever = docsearch.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+    retriever = docsearch.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": 3}
+    )
 
     chat_model = ChatOpenAI(model="gpt-4o")
+
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", system_prompt),
@@ -36,8 +39,15 @@ def _build_rag_chain():
         ]
     )
 
-    question_answer_chain = create_stuff_documents_chain(chat_model, prompt)
-    return create_retrieval_chain(retriever, question_answer_chain)
+    question_answer_chain = create_stuff_documents_chain(
+        chat_model,
+        prompt
+    )
+
+    return create_retrieval_chain(
+        retriever,
+        question_answer_chain
+    )
 
 
 def create_app(config_overrides=None, rag_chain=None):
