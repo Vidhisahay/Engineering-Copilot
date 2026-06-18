@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
 
-
 jobs:
   Continuous-Integration:
     runs-on: ubuntu-latest
@@ -33,15 +32,11 @@ jobs:
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .  
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
   Continuous-Deployment:
     needs: Continuous-Integration
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
@@ -49,21 +44,30 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Run Docker Image to serve users
-        run: |
-         docker stop engineering-copilot || true
-         docker rm engineering-copilot || true
-         docker run -d --name engineering-copilot \
-           -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
-           -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-           -e AWS_DEFAULT_REGION="${{ secrets.AWS_DEFAULT_REGION }}" \
-           -e PINECONE_API_KEY="${{ secrets.PINECONE_API_KEY }}" \
-           -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-           -e JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}" \
-           -e AUTH_USERNAME="${{ secrets.AUTH_USERNAME }}" \
-           -e AUTH_PASSWORD="${{ secrets.AUTH_PASSWORD }}" \
-           -p 8080:8080 "${{ steps.login-ecr.outputs.registry }}"/"${{ secrets.ECR_REPO }}":latest
+      - name: Deploy to EC2 via AWS SSM
+        uses: peterkimzz/aws-ssm-command@v1.1.0
+        with:
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+          # Finds your EC2 instance automatically using a tag. 
+          # Ensure your EC2 instance has a Tag with Key: Name, Value: engineering-copilot
+          search-by: 'tags'
+          key: 'Name'
+          value: 'engineering-machine'
+          command: |
+            # 1. Log into ECR on your EC2 instance
+            aws ecr get-login-password --region ${{ secrets.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCESS_KEY_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com
+            
+            # 2. Clean up old container
+            docker stop engineering-copilot || true
+            docker rm engineering-copilot || true
+            
+            # 3. Pull and Run the new container with your secrets
+            docker pull ${{ secrets.AWS_ACCESS_KEY_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.ECR_REPO }}:latest
+            docker run -d --name engineering-copilot \
+              -e JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}" \
+              -e AUTH_USERNAME="${{ secrets.AUTH_USERNAME }}" \
+              -e AUTH_PASSWORD="${{ secrets.AUTH_PASSWORD }}" \
+              -e PINECONE_API_KEY="${{ secrets.PINECONE_API_KEY }}" \
+              -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+              -p 8080:8080 \
+              ${{ secrets.AWS_ACCESS_KEY_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ secrets.ECR_REPO }}:latest
