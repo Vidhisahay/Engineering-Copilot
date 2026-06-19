@@ -3,6 +3,7 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from src.chat_memory import append_turn, format_history_for_input
+from src.metrics import init_metrics
 from dotenv import load_dotenv
 import os
 
@@ -68,6 +69,7 @@ def create_app(config_overrides=None, rag_chain=None):
     if config_overrides:
         app.config.update(config_overrides)
 
+    init_metrics(app)
     JWTManager(app)
 
     limiter = Limiter(
@@ -124,6 +126,10 @@ def create_app(config_overrides=None, rag_chain=None):
 
         return answer
 
+    print("\nREGISTERED ROUTES:")
+    for rule in app.url_map.iter_rules():
+        print(rule)
+
     return app
 
 
@@ -134,4 +140,4 @@ else:
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    app.run(host="0.0.0.0", port=8080, debug=False)
